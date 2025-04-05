@@ -384,7 +384,7 @@ public class AsyncManager extends BukkitRunnable {
                         if (bukkitLocation.getBlock().isEmpty()) {
                             continue;
                         }
-                        updateCommands.add(new ExplosionUpdateCommand(bukkitLocation, 0.0F, false));
+                        updateCommands.add(new ExplosionUpdateCommand(bukkitLocation, 4.0F, false, false));
                     }
                 }
                 if (RANDOM.nextDouble() <= disintegrationChance) {
