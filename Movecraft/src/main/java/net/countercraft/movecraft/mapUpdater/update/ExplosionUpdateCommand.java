@@ -11,16 +11,16 @@ public class ExplosionUpdateCommand extends UpdateCommand {
     private final Location explosionLocation;
     private final float explosionStrength;
     private final boolean incendiary;
-    private final boolean shouldDamageBlocks;  // New field to control block damage
+    private final boolean shouldDamageBlocks;
 
-    public ExplosionUpdateCommand(Location explosionLocation, float explosionStrength, boolean incendiary) throws IllegalArgumentException {
-        if(explosionStrength < 0){
+    public ExplosionUpdateCommand(Location explosionLocation, float explosionStrength, boolean incendiary, boolean shouldDamageBlocks) {
+        if (explosionStrength < 0) {
             throw new IllegalArgumentException("Explosion strength cannot be negative");
         }
         this.explosionLocation = explosionLocation;
         this.explosionStrength = explosionStrength;
         this.incendiary = incendiary;
-        this.shouldDamageBlocks = shouldDamageBlocks;  // Set the block damage flag
+        this.shouldDamageBlocks = shouldDamageBlocks;
     }
 
     public Location getLocation() {
@@ -41,30 +41,36 @@ public class ExplosionUpdateCommand extends UpdateCommand {
 
     @Override
     public void doUpdate() {
-        ExplosionEvent e = new ExplosionEvent(explosionLocation, explosionStrength, incendiary, shouldDamageBlocks);
+        ExplosionEvent e = new ExplosionEvent(explosionLocation, explosionStrength, incendiary);  // Three args here
         Bukkit.getServer().getPluginManager().callEvent(e);
-        if(e.isCancelled())
+        if (e.isCancelled())
             return;
 
         if (Settings.Debug) {
             Bukkit.broadcastMessage("Explosion strength: " + explosionStrength + " at " + explosionLocation.toVector().toString());
         }
 
-        this.createExplosion(explosionLocation.add(.5,.5,.5), explosionStrength, incendiary, shouldDamageBlocks);
+        this.createExplosion(explosionLocation.add(.5, .5, .5), explosionStrength, incendiary, shouldDamageBlocks);
     }
 
     private void createExplosion(Location loc, float explosionPower, boolean incendiary, boolean shouldDamageBlocks) {
-        loc.getWorld().createExplosion(loc.getX(), loc.getY(), loc.getZ(), explosionPower, incendiary);
+        loc.getWorld().createExplosion(loc, explosionPower, shouldDamageBlocks, incendiary);
+
+        // Cosmetic effects (if no block damage)
+        if (!shouldDamageBlocks) {
+            loc.getWorld().spawnParticle(org.bukkit.Particle.EXPLOSION_LARGE, loc, 1);
+            loc.getWorld().playSound(loc, org.bukkit.Sound.ENTITY_TNT_PRIMED, 1.0F, 1.0F);
+        }
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(explosionLocation, explosionStrength);
+        return Objects.hash(explosionLocation, explosionStrength, shouldDamageBlocks);
     }
 
     @Override
     public boolean equals(Object obj) {
-        if(!(obj instanceof ExplosionUpdateCommand)){
+        if (!(obj instanceof ExplosionUpdateCommand)) {
             return false;
         }
         ExplosionUpdateCommand other = (ExplosionUpdateCommand) obj;
