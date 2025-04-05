@@ -70,7 +70,7 @@ public class ExplosionUpdateCommand extends UpdateCommand {
         ExplosionUpdateCommand other = (ExplosionUpdateCommand) obj;
         return this.explosionLocation.equals(other.explosionLocation) &&
                 this.explosionStrength == other.explosionStrength &&
-                this.incendiary == other.incendiary;
+                this.incendiary == other.incendiary &&
                 this.shouldDamageBlocks == other.shouldDamageBlocks;
     }
 }
