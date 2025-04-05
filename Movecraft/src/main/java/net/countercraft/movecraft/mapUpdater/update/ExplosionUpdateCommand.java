@@ -11,6 +11,7 @@ public class ExplosionUpdateCommand extends UpdateCommand {
     private final Location explosionLocation;
     private final float explosionStrength;
     private final boolean incendiary;
+    private final boolean shouldDamageBlocks;  // New field to control block damage
 
     public ExplosionUpdateCommand(Location explosionLocation, float explosionStrength, boolean incendiary) throws IllegalArgumentException {
         if(explosionStrength < 0){
@@ -19,6 +20,7 @@ public class ExplosionUpdateCommand extends UpdateCommand {
         this.explosionLocation = explosionLocation;
         this.explosionStrength = explosionStrength;
         this.incendiary = incendiary;
+        this.shouldDamageBlocks = shouldDamageBlocks;  // Set the block damage flag
     }
 
     public Location getLocation() {
@@ -33,6 +35,10 @@ public class ExplosionUpdateCommand extends UpdateCommand {
         return incendiary;
     }
 
+    public boolean shouldDamageBlocks() {
+        return shouldDamageBlocks;
+    }
+
     @Override
     public void doUpdate() {
         ExplosionEvent e = new ExplosionEvent(explosionLocation, explosionStrength, incendiary);
@@ -44,16 +50,16 @@ public class ExplosionUpdateCommand extends UpdateCommand {
             Bukkit.broadcastMessage("Explosion strength: " + explosionStrength + " at " + explosionLocation.toVector().toString());
         }
 
-        this.createExplosion(explosionLocation.add(.5,.5,.5), explosionStrength, incendiary);
+        this.createExplosion(explosionLocation.add(.5,.5,.5), explosionStrength, incendiary, shouldDamageBlocks);
     }
 
     private void createExplosion(Location loc, float explosionPower, boolean incendiary) {
-        loc.getWorld().createExplosion(loc.getX(), loc.getY(), loc.getZ(), explosionPower, incendiary);
+        loc.getWorld().createExplosion(loc.getX(), loc.getY(), loc.getZ(), explosionPower, incendiary, shouldDamageBlocks);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(explosionLocation, explosionStrength);
+        return Objects.hash(explosionLocation, explosionStrength, shouldDamageBlocks);
     }
 
     @Override
@@ -65,5 +71,6 @@ public class ExplosionUpdateCommand extends UpdateCommand {
         return this.explosionLocation.equals(other.explosionLocation) &&
                 this.explosionStrength == other.explosionStrength &&
                 this.incendiary == other.incendiary;
+                this.shouldDamageBlocks == other.shouldDamageBlocks;
     }
 }
