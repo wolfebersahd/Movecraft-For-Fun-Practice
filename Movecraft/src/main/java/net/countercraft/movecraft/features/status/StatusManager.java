@@ -1,5 +1,6 @@
 package net.countercraft.movecraft.features.status;
 
+import net.countercraft.movecraft.Movecraft;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.config.Settings;
 import net.countercraft.movecraft.craft.Craft;
@@ -9,10 +10,12 @@ import net.countercraft.movecraft.craft.datatag.CraftDataTagKey;
 import net.countercraft.movecraft.craft.datatag.CraftDataTagRegistry;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
+import net.countercraft.movecraft.events.CraftStopCruiseEvent;
 import net.countercraft.movecraft.features.status.events.CraftStatusUpdateEvent;
 import net.countercraft.movecraft.localisation.I18nSupport;
 import net.countercraft.movecraft.processing.WorldManager;
 import net.countercraft.movecraft.processing.effects.Effect;
+import net.countercraft.movecraft.sign.SignListener;
 import net.countercraft.movecraft.util.Counter;
 import net.countercraft.movecraft.util.Tags;
 import net.kyori.adventure.key.Key;
@@ -32,7 +35,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 public class StatusManager extends BukkitRunnable implements Listener {
-    private static final CraftDataTagKey<Long> LAST_STATUS_CHECK = CraftDataTagRegistry.INSTANCE.registerTagKey(new NamespacedKey("movecraft", "last-status-check"), craft -> System.currentTimeMillis());
+    public static final CraftDataTagKey<Long> LAST_STATUS_CHECK = CraftDataTagRegistry.INSTANCE.registerTagKey(new NamespacedKey("movecraft", "last-status-check"), craft -> System.currentTimeMillis());
 
     @Override
     public void run() {
@@ -46,11 +49,11 @@ public class StatusManager extends BukkitRunnable implements Listener {
         }
     }
 
-    private static final class StatusUpdateTask implements Supplier<Effect> {
+    public static final class StatusUpdateTask implements Supplier<Effect> {
         private final Craft craft;
         private final Map<Material, Double> fuelTypes;
 
-        private StatusUpdateTask(@NotNull Craft craft) {
+        public StatusUpdateTask(@NotNull Craft craft) {
             this.craft = craft;
 
             Object object = craft.getType().getObjectProperty(CraftType.FUEL_TYPES);
@@ -95,6 +98,12 @@ public class StatusManager extends BukkitRunnable implements Listener {
 
             Counter<RequiredBlockEntry> flyblocks = new Counter<>();
             Counter<RequiredBlockEntry> moveblocks = new Counter<>();
+
+            // Pre-fill the moveblocks counter to avoid ignoring moveblocks
+            for(RequiredBlockEntry entry : craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS)) {
+                moveblocks.add(entry, 0);
+            }
+
             for(Material material : materials.getKeySet()) {
                 for(RequiredBlockEntry entry : craft.getType().getRequiredBlockProperty(CraftType.FLY_BLOCKS)) {
                     if(entry.contains(material)) {
@@ -123,6 +132,9 @@ public class StatusManager extends BukkitRunnable implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCraftStatusUpdate(@NotNull CraftStatusUpdateEvent e) {
         Craft craft = e.getCraft();
+
+        SignListener.INSTANCE.onStatusUpdate(craft);
+
         if (craft instanceof SinkingCraft)
             return;
         if (craft.getType().getDoubleProperty(CraftType.SINK_PERCENT) == 0.0)
@@ -130,25 +142,12 @@ public class StatusManager extends BukkitRunnable implements Listener {
 
         boolean sinking = false;
         boolean disabled = false;
-        Counter<Material> materials = craft.getDataTag(Craft.MATERIALS);
         int nonNegligibleBlocks = craft.getDataTag(Craft.NON_NEGLIGIBLE_BLOCKS);
         int nonNegligibleSolidBlocks = craft.getDataTag(Craft.NON_NEGLIGIBLE_SOLID_BLOCKS);
 
         // Build up counters of the fly and move blocks
-        Counter<RequiredBlockEntry> flyBlocks = new Counter<>();
-        flyBlocks.putAll(craft.getType().getRequiredBlockProperty(CraftType.FLY_BLOCKS));
-        Counter<RequiredBlockEntry> moveBlocks = new Counter<>();
-        moveBlocks.putAll(craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS));
-        for (Material m : materials.getKeySet()) {
-            for (RequiredBlockEntry entry : flyBlocks.getKeySet()) {
-                if(entry.contains(m))
-                    flyBlocks.add(entry, materials.get(m));
-            }
-            for (RequiredBlockEntry entry : moveBlocks.getKeySet()) {
-                if(entry.contains(m))
-                    moveBlocks.add(entry, materials.get(m));
-            }
-        }
+        Counter<RequiredBlockEntry> flyBlocks = craft.getDataTag(Craft.FLYBLOCKS);
+        Counter<RequiredBlockEntry> moveBlocks = craft.getDataTag(Craft.MOVEBLOCKS);
 
         // now see if any of the resulting percentages are below the threshold specified in sinkPercent
         double sinkPercent = craft.getType().getDoubleProperty(CraftType.SINK_PERCENT) / 100.0;
@@ -156,9 +155,12 @@ public class StatusManager extends BukkitRunnable implements Listener {
             if(!entry.check(flyBlocks.get(entry), nonNegligibleBlocks, sinkPercent))
                 sinking = true;
         }
-        for (RequiredBlockEntry entry : moveBlocks.getKeySet()) {
-            if (!entry.check(moveBlocks.get(entry), nonNegligibleBlocks, sinkPercent))
-                disabled = true;
+        // If the craft has MOveblocks defined, then validate them, if there are any aboard
+        if (craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS).size() > 0) {
+            for (RequiredBlockEntry entry : moveBlocks.getKeySet()) {
+                if (!entry.check(moveBlocks.get(entry), nonNegligibleBlocks, sinkPercent))
+                    disabled = true;
+            }
         }
 
         // And check the OverallSinkPercent
@@ -180,15 +182,23 @@ public class StatusManager extends BukkitRunnable implements Listener {
             sinking = true;
 
         // If the craft is disabled, play a sound and disable it.
-        if (disabled && !craft.getDisabled()) {
-            craft.setDisabled(true);
-            craft.getAudience().playSound(Sound.sound(Key.key("entity.iron_golem.death"), Sound.Source.NEUTRAL, 5.0f, 5.0f));
+        if (disabled != craft.getDisabled()) {
+            if (disabled) {
+                craft.setDisabled(disabled);
+                if (disabled) {
+                    craft.getAudience().playSound(Sound.sound(Key.key("entity.iron_golem.death"), Sound.Source.NEUTRAL, 5.0f, 5.0f));
+                }
+            }
+            else if (craft.getType().getBoolProperty(CraftType.CAN_BE_UN_DISABLED)) {
+                craft.setDisabled(disabled);
+                // TODO: Play sound
+            }
         }
 
         // If the craft is sinking, let the player know and sink the craft.
         if (sinking) {
             craft.getAudience().sendMessage(I18nSupport.getInternationalisedComponent("Player - Craft is sinking"));
-            craft.setCruising(false);
+            craft.setCruising(false, CraftStopCruiseEvent.Reason.CRAFT_SUNK);
             CraftManager.getInstance().sink(craft);
         }
     }

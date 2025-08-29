@@ -52,6 +52,11 @@ import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.material.Attachable;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
+import java.util.List;
+
+import java.util.List;
+
+import static net.countercraft.movecraft.craft.type.CraftType.REQUIRE_DISABLED_TO_BREAK_BLOCKS;
 
 public class BlockListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -64,7 +69,9 @@ public class BlockListener implements Listener {
         Location location = e.getBlock().getLocation();
         MovecraftLocation loc = MathUtils.bukkit2MovecraftLoc(location);
         for (Craft craft : MathUtils.craftsNearLocFast(CraftManager.getInstance().getCrafts(), location)) {
-            if (craft.getDisabled() || !craft.getHitBox().contains(loc))
+            // TODO: check against flag in crafttype
+            boolean craftAllowsBlockBreaking = !craft.getType().getBoolProperty(REQUIRE_DISABLED_TO_BREAK_BLOCKS) || (craft.getType().getBoolProperty(CraftType.ALLOW_BLOCK_BREAKING_WHEN_DISABLED) && craft.getDisabled());
+            if (craftAllowsBlockBreaking || !craft.getHitBox().contains(loc))
                 continue;
 
             e.setCancelled(true);
@@ -84,7 +91,7 @@ public class BlockListener implements Listener {
         for (Craft craft : MathUtils.craftsNearLocFast(CraftManager.getInstance().getCrafts(), location)) {
             if (craft.getDisabled() || !(craft instanceof PilotedCraft) || !craft.getHitBox().contains(loc))
                 continue;
-            if (((PilotedCraft) craft).getPilot() == p)
+            if (((PilotedCraft) craft).getPilotUUID().equals(p.getUniqueId()))
                 continue;
 
             e.setCancelled(true);
@@ -126,15 +133,15 @@ public class BlockListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPistonExtendEvent(@NotNull BlockPistonExtendEvent e) {
-        onPistonEvent(e);
+        onPistonEvent(e, e.getBlocks());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPistonRetractEvent(@NotNull BlockPistonRetractEvent e) {
-        onPistonEvent(e);
+        onPistonEvent(e, e.getBlocks());
     }
 
-    public void onPistonEvent(@NotNull BlockPistonEvent e) {
+    public void onPistonEvent(@NotNull BlockPistonEvent e, final @NotNull List<Block> affectedBlocks) {
         Block block = e.getBlock();
         Location location = block.getLocation();
         MovecraftLocation loc = MathUtils.bukkit2MovecraftLoc(location);
@@ -143,15 +150,13 @@ public class BlockListener implements Listener {
                 continue;
 
            if (!craft.isNotProcessing())
-               e.setCancelled(true); // prevent pistons on cruising crafts
-           if (!(e instanceof BlockPistonExtendEvent))
-               return;
-            // merge piston extensions to craft
-           if (craft.getType().getBoolProperty(CraftType.MERGE_PISTON_EXTENSIONS))
+               e.setCancelled(true); // prevent pistons on cruising crafts           
+            // merge piston extensions to craft if the property is true
+           if (!craft.getType().getBoolProperty(CraftType.MERGE_PISTON_EXTENSIONS))
                 continue;
 
            BitmapHitBox hitBox = new BitmapHitBox();
-           for (Block b : ((BlockPistonExtendEvent) e).getBlocks()) {
+           for (Block b : affectedBlocks) {
                Vector dir = e.getDirection().getDirection();
                hitBox.add(new MovecraftLocation(b.getX() + dir.getBlockX(), b.getY() + dir.getBlockY(), b.getZ() + dir.getBlockZ()));
            }
