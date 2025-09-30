@@ -292,54 +292,84 @@ public class AsyncManager extends BukkitRunnable {
     }
 
     //Controls sinking crafts
-    private void processSinking() {
-        // Copy the crafts before iteration to prevent concurrent modifications
-        List<Craft> crafts = Lists.newArrayList((Iterable)CraftManager.getInstance());
+    public static void processSinking() {
+        //copy the crafts before iteration to prevent concurrent modifications
+        List<Craft> crafts = Lists.newArrayList(CraftManager.getInstance());
         for (Craft craft : crafts) {
-            if (!(craft instanceof net.countercraft.movecraft.craft.SinkingCraft))
-                continue; 
+            if (!(craft instanceof SinkingCraft))
+                continue;
+
+            if (craft.getHitBox().isEmpty() /*|| craft.getHitBox().getMinY() < (craft.getWorld().getMinHeight() +5 )*/) {
+                CraftManager.getInstance().release(craft, CraftReleaseEvent.Reason.SUNK, false);
+                continue;
+            }
+
+            long ticksElapsed = (System.currentTimeMillis() - craft.getLastCruiseUpdate()) / 50;
+            if (Math.abs(ticksElapsed) < craft.getType().getIntProperty(CraftType.SINK_RATE_TICKS))
+                continue;
+
+            // Do this first so we stay in sync with the rate
+            craft.setLastCruiseUpdate(System.currentTimeMillis());
+
+            // The hitbox can be modified here, so check again
             if (craft.getHitBox().isEmpty()) {
                 CraftManager.getInstance().release(craft, CraftReleaseEvent.Reason.SUNK, false);
                 continue;
-            } 
-            if (craft.getHitBox().getMinY() == craft.getWorld().getMinHeight()) {
+            } else if (craft.getHitBox().getMinY() == craft.getWorld().getMinHeight()) {
                 removeBottomLayer(craft);
-                MovecraftLocation start = new MovecraftLocation(craft.getHitBox().getMinX(), craft.getHitBox().getMinY() + 1, craft.getHitBox().getMinZ());
-                MovecraftLocation end = new MovecraftLocation(craft.getHitBox().getMaxX(), craft.getHitBox().getMaxY(), craft.getHitBox().getMaxZ());
-                SolidHitBox newHitBox = new SolidHitBox(start, end);
-                craft.setHitBox((HitBox)newHitBox);
-                continue;
-            } 
-            long ticksElapsed = (System.currentTimeMillis() - craft.getLastCruiseUpdate()) / 50L;
-            if (Math.abs(ticksElapsed) < craft.getType().getIntProperty(CraftType.SINK_RATE_TICKS))
-                continue; 
+            }
+
             int dx = 0;
             int dz = 0;
             if (craft.getType().getBoolProperty(CraftType.KEEP_MOVING_ON_SINK)) {
                 dx = craft.getLastTranslation().getX();
                 dz = craft.getLastTranslation().getZ();
-            } 
+            }
             craft.translate(dx, -1, dz);
-            craft.setLastCruiseUpdate(System.currentTimeMillis());
-        } 
+        }
     }
-    
-    private void removeBottomLayer(Craft craft) {
-        if (craft.getHitBox().isEmpty())
-            return; 
+
+    static final Random RANDOM = new Random();
+
+    private static void removeBottomLayer(Craft craft) {
+        if (craft.getHitBox().isEmpty()) {
+            return;
+        }
+
         int bottomY = craft.getHitBox().getMinY();
-        int width = craft.getHitBox().getXLength();
-        int length = craft.getHitBox().getZLength();
-        int startX = craft.getHitBox().getMinX();
-        int startZ = craft.getHitBox().getMinZ();
         World world = craft.getWorld();
-        for (int x = startX; x < startX + width; x++) {
-            for (int z = startZ; z < startZ + length; z++) {
-                Block block = world.getBlockAt(x, bottomY, z);
-                if (block.getType() != Material.AIR)
-                    block.setType(Material.AIR); 
-            } 
-        } 
+
+        final double chance = craft.getType().getDoubleProperty(CraftType.FALL_OUT_OF_WORLD_BLOCK_CHANCE);
+
+        List<MovecraftLocation> toRemove = new ArrayList<>();
+        Set<MovecraftLocation> oldHitbox = craft.getHitBox().asSet();
+
+        List<UpdateCommand> updateCommands = new ArrayList<>();
+
+        for (MovecraftLocation movecraftLocation : oldHitbox) {
+            Location location = movecraftLocation.toBukkit(world);
+            if (movecraftLocation.getY() == bottomY) {
+                // TODO: Change this to use UpdateCommands too
+                if (chance > 0.0D && RANDOM.nextDouble() <= chance) {
+                    Block block = location.getBlock();
+                    FallingBlock fallingBlock = world.spawnFallingBlock(location, block.getBlockData());
+                    fallingBlock.setDropItem(false);
+                    Vector velocity = new Vector(RANDOM.nextDouble() - 0.5D, fallingBlock.getVelocity().getY() / 2.0D, RANDOM.nextDouble() - 0.5D);
+                    fallingBlock.setVelocity(velocity.normalize().multiply(0.5D));
+                }
+
+                updateCommands.add(new BlockCreateCommand(world, movecraftLocation, Material.AIR));
+
+                toRemove.add(movecraftLocation);
+            }
+        }
+
+        MapUpdateManager.getInstance().scheduleUpdates(updateCommands);
+
+        // Recalculate hitbox
+        BitmapHitBox newHitBox = new BitmapHitBox(oldHitbox);
+        newHitBox.removeAll(toRemove);
+        craft.setHitBox(newHitBox);
     }
 
 
