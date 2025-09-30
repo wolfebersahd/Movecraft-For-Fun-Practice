@@ -3,6 +3,7 @@ package net.countercraft.movecraft.async.translation;
 import net.countercraft.movecraft.Movecraft;
 import net.countercraft.movecraft.MovecraftChunk;
 import net.countercraft.movecraft.MovecraftLocation;
+import net.countercraft.movecraft.TrackedLocation;
 import net.countercraft.movecraft.async.AsyncTask;
 import net.countercraft.movecraft.config.Settings;
 import net.countercraft.movecraft.craft.ChunkManager;
@@ -229,13 +230,15 @@ public class TranslationTask extends AsyncTask {
             MovecraftLocation test = new MovecraftLocation(newHitBox.getMidPoint().getX(), newHitBox.getMinY(),
                     newHitBox.getMidPoint().getZ());
             test = test.translate(0, -1, 0);
-            while (test.toBukkit(world).getBlock().getType().isAir()) {
+            // If we are out of bounds, that is technically air, but then we would have an infinite loop, so stay in Y bounds
+            while (test.toBukkit(world).getBlock().getType().isAir() && world.getMinHeight() >= test.getY()) {
                 test = test.translate(0, -1, 0);
             }
             Material testType = test.toBukkit(world).getBlock().getType();
             if (craft.getType().getMaterialSetProperty(CraftType.FORBIDDEN_HOVER_OVER_BLOCKS).contains(testType)) {
                 fail(String.format(I18nSupport.getInternationalisedString("Translation - Failed Craft over block"),
                         testType.name().toLowerCase().replace("_", " ")));
+                return;
             }
         }
         //call event
@@ -317,6 +320,9 @@ public class TranslationTask extends AsyncTask {
                 }
             }
         }
+
+        // Update the reference location for trackedlocations
+        craft.setDataTag(Craft.CRAFT_ORIGIN, craft.getCraftOrigin().translate(dx, dy, dz));
 
         if (!collisionBox.isEmpty() && craft.getType().getBoolProperty(CraftType.CRUISE_ON_PILOT)) {
             CraftManager.getInstance().release(craft, CraftReleaseEvent.Reason.EMPTY, false);

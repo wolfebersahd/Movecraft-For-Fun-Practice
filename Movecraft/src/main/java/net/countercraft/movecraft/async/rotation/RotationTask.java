@@ -165,14 +165,18 @@ public class RotationTask extends AsyncTask {
         }
 
         // Rotates the craft's tracked locations, and all parent craft's.
+        MovecraftLocation oldOrigin = craft.getCraftOrigin();
+        MovecraftLocation vectorRotated = MathUtils.rotateVec(rotation, oldOrigin.subtract(originPoint));
+        craft.setDataTag(Craft.CRAFT_ORIGIN, originPoint.add(vectorRotated));
         Craft temp = craft;
-        do {
-            for (Set<TrackedLocation> locations : craft.getTrackedLocations().values()) {
+        // recursion through all subcrafts is not necessary as the trackedlocations are transferred to the subcraft
+        //do {
+            for (Set<TrackedLocation> locations : temp.getTrackedLocations().values()) {
                 for (TrackedLocation location : locations) {
-                    location.rotate(rotation, originPoint);
+                    location.rotate(rotation);
                 }
             }
-        } while (temp instanceof SubCraft && (temp = ((SubCraft) temp).getParent()) != null);
+        //} while (temp instanceof SubCraft && (temp = ((SubCraft) temp).getParent()) != null);
 
         updates.add(new CraftRotateCommand(getCraft(),originPoint, rotation));
         //rotate entities in the craft
@@ -185,7 +189,7 @@ public class RotationTask extends AsyncTask {
         Craft craft1 = getCraft();
         if (craft1.getCruising()) {
             CruiseDirection direction = craft1.getCruiseDirection();
-            craft1.setCruiseDirection(direction.getRotated(rotation));
+            craft1.setCruiseDirection(direction.getRotated2D(rotation));
         }
 
         // if you rotated a subcraft, update the parent with the new blocks
