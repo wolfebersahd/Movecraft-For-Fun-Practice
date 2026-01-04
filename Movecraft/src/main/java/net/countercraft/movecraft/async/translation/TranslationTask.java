@@ -175,7 +175,7 @@ public class TranslationTask extends AsyncTask {
 
             if (Tags.CHESTS.contains(testMaterial) && checkChests(testMaterial, newLocation)) {
                 //prevent chests collision
-                fail(String.format(I18nSupport.getInternationalisedString("Translation - Failed Craft is obstructed"));
+                fail(String.format(I18nSupport.getInternationalisedString("Translation - Failed Craft is obstructed")));
                 return;
             }
             if (!withinWorldBorder(world, newLocation)) {
@@ -208,7 +208,7 @@ public class TranslationTask extends AsyncTask {
                 if (!(craft instanceof SinkingCraft)
                         && craft.getType().getFloatProperty(CraftType.COLLISION_EXPLOSION) <= 0F) {
                     fail(String.format(I18nSupport.getInternationalisedString(
-                                    "Translation - Failed Craft is obstructed"));
+                                    "Translation - Failed Craft is obstructed")));
                     return;
                 }
                 collisionBox.add(newLocation);
