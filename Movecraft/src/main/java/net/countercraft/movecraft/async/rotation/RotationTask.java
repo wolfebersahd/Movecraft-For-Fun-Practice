@@ -118,12 +118,12 @@ public class RotationTask extends AsyncTask {
             //prevent chests collision
             if (Tags.CHESTS.contains(oldMaterial) && !checkChests(oldMaterial, newLocation)) {
                 failed = true;
-                failMessage = String.format(I18nSupport.getInternationalisedString("Rotation - Craft is obstructed") + " @ %d,%d,%d", newLocation.getX(), newLocation.getY(), newLocation.getZ());
+                failMessage = String.format(I18nSupport.getInternationalisedString("Rotation - Craft is obstructed"));
                 break;
             }
 
             if (!withinWorldBorder(craft.getWorld(), newLocation)) {
-                failMessage = I18nSupport.getInternationalisedString("Rotation - Failed Craft cannot pass world border") + String.format(" @ %d,%d,%d", newLocation.getX(), newLocation.getY(), newLocation.getZ());
+                failMessage = I18nSupport.getInternationalisedString("Rotation - Failed Craft cannot pass world border"));
                 failed = true;
                 return;
             }
@@ -134,7 +134,7 @@ public class RotationTask extends AsyncTask {
 
             if (!oldHitBox.contains(newLocation)) {
                 failed = true;
-                failMessage = String.format(I18nSupport.getInternationalisedString("Rotation - Craft is obstructed") + " @ %d,%d,%d", newLocation.getX(), newLocation.getY(), newLocation.getZ());
+                failMessage = String.format(I18nSupport.getInternationalisedString("Rotation - Craft is obstructed"));
                 break;
             }
         }
