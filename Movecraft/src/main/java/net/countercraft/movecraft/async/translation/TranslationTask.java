@@ -175,9 +175,7 @@ public class TranslationTask extends AsyncTask {
 
             if (Tags.CHESTS.contains(testMaterial) && checkChests(testMaterial, newLocation)) {
                 //prevent chests collision
-                fail(String.format(I18nSupport.getInternationalisedString("Translation - Failed Craft is obstructed")
-                                + " @ %d,%d,%d,%s", newLocation.getX(), newLocation.getY(), newLocation.getZ(),
-                        newLocation.toBukkit(craft.getWorld()).getBlock().getType()));
+                fail(String.format(I18nSupport.getInternationalisedString("Translation - Failed Craft is obstructed"));
                 return;
             }
             if (!withinWorldBorder(world, newLocation)) {
