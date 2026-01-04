@@ -123,7 +123,7 @@ public class RotationTask extends AsyncTask {
             }
 
             if (!withinWorldBorder(craft.getWorld(), newLocation)) {
-                failMessage = I18nSupport.getInternationalisedString("Rotation - Failed Craft cannot pass world border"));
+                failMessage = I18nSupport.getInternationalisedString("Rotation - Failed Craft cannot pass world border");
                 failed = true;
                 return;
             }
