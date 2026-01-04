@@ -208,8 +208,7 @@ public class TranslationTask extends AsyncTask {
                 if (!(craft instanceof SinkingCraft)
                         && craft.getType().getFloatProperty(CraftType.COLLISION_EXPLOSION) <= 0F) {
                     fail(String.format(I18nSupport.getInternationalisedString(
-                                    "Translation - Failed Craft is obstructed") + " @ %d,%d,%d,%s",
-                            newLocation.getX(), newLocation.getY(), newLocation.getZ(), testMaterial));
+                                    "Translation - Failed Craft is obstructed"));
                     return;
                 }
                 collisionBox.add(newLocation);
