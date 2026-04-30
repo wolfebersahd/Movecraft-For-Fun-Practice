@@ -21,7 +21,6 @@ import com.google.common.collect.Lists;
 import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.Movecraft;
 import net.countercraft.movecraft.MovecraftLocation;
-import net.countercraft.movecraft.util.hitboxes.SolidHitBox;
 import net.countercraft.movecraft.async.rotation.RotationTask;
 import net.countercraft.movecraft.async.translation.TranslationTask;
 import net.countercraft.movecraft.craft.Craft;
@@ -32,22 +31,28 @@ import net.countercraft.movecraft.craft.SinkingCraft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.mapUpdater.MapUpdateManager;
-import net.countercraft.movecraft.util.hitboxes.HitBox;
-import net.countercraft.movecraft.util.hitboxes.SolidHitBox;
+import net.countercraft.movecraft.util.hitboxes.BitmapHitBox;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Random;
 import java.util.WeakHashMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -297,49 +302,126 @@ public class AsyncManager extends BukkitRunnable {
         List<Craft> crafts = Lists.newArrayList((Iterable)CraftManager.getInstance());
         for (Craft craft : crafts) {
             if (!(craft instanceof net.countercraft.movecraft.craft.SinkingCraft))
-                continue; 
+                continue;
             if (craft.getHitBox().isEmpty()) {
                 CraftManager.getInstance().release(craft, CraftReleaseEvent.Reason.SUNK, false);
                 continue;
-            } 
-            if (craft.getHitBox().getMinY() == craft.getWorld().getMinHeight()) {
-                removeBottomLayer(craft);
-                MovecraftLocation start = new MovecraftLocation(craft.getHitBox().getMinX(), craft.getHitBox().getMinY() + 1, craft.getHitBox().getMinZ());
-                MovecraftLocation end = new MovecraftLocation(craft.getHitBox().getMaxX(), craft.getHitBox().getMaxY(), craft.getHitBox().getMaxZ());
-                SolidHitBox newHitBox = new SolidHitBox(start, end);
-                craft.setHitBox((HitBox)newHitBox);
-                continue;
-            } 
+            }
+
             long ticksElapsed = (System.currentTimeMillis() - craft.getLastCruiseUpdate()) / 50L;
             if (Math.abs(ticksElapsed) < craft.getType().getIntProperty(CraftType.SINK_RATE_TICKS))
-                continue; 
+                continue;
+
+            spawnRandomExplosionVisuals(craft);
+
+            if (craft.getHitBox().getMinY() == craft.getWorld().getMinHeight()) {
+                removeBottomLayer(craft);
+                craft.setLastCruiseUpdate(System.currentTimeMillis());
+                continue;
+            }
+
             int dx = 0;
             int dz = 0;
             if (craft.getType().getBoolProperty(CraftType.KEEP_MOVING_ON_SINK)) {
                 dx = craft.getLastTranslation().getX();
                 dz = craft.getLastTranslation().getZ();
-            } 
+            }
             craft.translate(dx, -1, dz);
             craft.setLastCruiseUpdate(System.currentTimeMillis());
-        } 
+        }
     }
-    
+
+    private static final Random RANDOM = new Random();
+
+    private void spawnRandomExplosionVisuals(Craft craft) {
+        if (craft.getHitBox().isEmpty())
+            return;
+
+        Set<MovecraftLocation> hitBox = craft.getHitBox().asSet();
+        int craftSize = hitBox.size();
+        if (craftSize <= 0)
+            return;
+
+        // Scales gently by craft size so small wrecks rarely boom and large wrecks do not spam effects.
+        double chance = Math.min(0.30D, Math.max(0.03D, craftSize / 3000.0D));
+        if (RANDOM.nextDouble() > chance)
+            return;
+
+        int maxExplosions = Math.max(1, Math.min(3, craftSize / 750));
+        int explosions = 1 + RANDOM.nextInt(maxExplosions);
+
+        List<MovecraftLocation> blocks = new ArrayList<>(hitBox);
+        Collections.shuffle(blocks, RANDOM);
+
+        World world = craft.getWorld();
+        int spawned = 0;
+        for (MovecraftLocation movecraftLocation : blocks) {
+            Location location = movecraftLocation.toBukkit(world).add(0.5D, 0.5D, 0.5D);
+            if (location.getBlock().isEmpty())
+                continue;
+
+            world.spawnParticle(Particle.EXPLOSION, location, 1);
+            world.spawnParticle(Particle.SMOKE, location, 12, 0.6D, 0.6D, 0.6D, 0.02D);
+            world.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, 0.8F, 1.2F);
+
+            spawned++;
+            if (spawned >= explosions)
+                break;
+        }
+    }
+
     private void removeBottomLayer(Craft craft) {
         if (craft.getHitBox().isEmpty())
-            return; 
+            return;
+
         int bottomY = craft.getHitBox().getMinY();
-        int width = craft.getHitBox().getXLength();
-        int length = craft.getHitBox().getZLength();
-        int startX = craft.getHitBox().getMinX();
-        int startZ = craft.getHitBox().getMinZ();
         World world = craft.getWorld();
-        for (int x = startX; x < startX + width; x++) {
-            for (int z = startZ; z < startZ + length; z++) {
-                Block block = world.getBlockAt(x, bottomY, z);
-                if (block.getType() != Material.AIR)
-                    block.setType(Material.AIR); 
-            } 
-        } 
+
+        Set<MovecraftLocation> oldHitBox = craft.getHitBox().asSet();
+        List<MovecraftLocation> bottomLayer = new ArrayList<>();
+
+        for (MovecraftLocation movecraftLocation : oldHitBox) {
+            if (movecraftLocation.getY() == bottomY)
+                bottomLayer.add(movecraftLocation);
+        }
+
+        if (bottomLayer.isEmpty())
+            return;
+
+        Collections.shuffle(bottomLayer, RANDOM);
+        spawnBottomLayerFallingBlocks(world, bottomLayer);
+
+        for (MovecraftLocation movecraftLocation : bottomLayer) {
+            Block block = movecraftLocation.toBukkit(world).getBlock();
+            if (block.getType() != Material.AIR)
+                block.setType(Material.AIR);
+        }
+
+        BitmapHitBox newHitBox = new BitmapHitBox(oldHitBox);
+        newHitBox.removeAll(bottomLayer);
+        craft.setHitBox(newHitBox);
+    }
+
+    private void spawnBottomLayerFallingBlocks(World world, List<MovecraftLocation> bottomLayer) {
+        int fallingBlocks = Math.max(1, Math.min(12, bottomLayer.size() / 40));
+
+        for (int i = 0; i < fallingBlocks && i < bottomLayer.size(); i++) {
+            MovecraftLocation movecraftLocation = bottomLayer.get(i);
+            Location location = movecraftLocation.toBukkit(world);
+            Block block = location.getBlock();
+
+            if (block.isEmpty())
+                continue;
+
+            FallingBlock fallingBlock = world.spawnFallingBlock(location.clone().add(0.5D, 0.0D, 0.5D), block.getBlockData());
+            fallingBlock.setDropItem(false);
+            fallingBlock.setHurtEntities(false);
+            fallingBlock.setVelocity(new Vector(
+                    (RANDOM.nextDouble() - 0.5D) * 0.25D,
+                    -0.15D,
+                    (RANDOM.nextDouble() - 0.5D) * 0.25D
+            ));
+        }
     }
 
     public void run() {
