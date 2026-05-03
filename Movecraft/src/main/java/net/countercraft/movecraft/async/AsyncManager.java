@@ -31,16 +31,28 @@ import net.countercraft.movecraft.craft.SinkingCraft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.mapUpdater.MapUpdateManager;
+import net.countercraft.movecraft.util.hitboxes.HitBox;
+import net.countercraft.movecraft.util.hitboxes.SolidHitBox;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.BlockingQueue;
@@ -52,6 +64,7 @@ public class AsyncManager extends BukkitRunnable {
     private final BlockingQueue<AsyncTask> finishedAlgorithms = new LinkedBlockingQueue<>();
     private final Set<Craft> clearanceSet = new HashSet<>();
     private final Map<Craft, Integer> cooldownCache = new WeakHashMap<>();
+    private static final Random RANDOM = new Random();
 
     public AsyncManager() {}
 
@@ -287,19 +300,50 @@ public class AsyncManager extends BukkitRunnable {
 
     //Controls sinking crafts
     private void processSinking() {
-        //copy the crafts before iteration to prevent concurrent modifications
+        // Copy the crafts before iteration to prevent concurrent modifications
         List<Craft> crafts = Lists.newArrayList(CraftManager.getInstance());
         for (Craft craft : crafts) {
             if (!(craft instanceof SinkingCraft))
                 continue;
 
-            if (craft.getHitBox().isEmpty() || craft.getHitBox().getMinY() < (craft.getWorld().getMinHeight() +5 )) {
+            if (craft.getHitBox().isEmpty()) {
                 CraftManager.getInstance().release(craft, CraftReleaseEvent.Reason.SUNK, false);
                 continue;
             }
-            long ticksElapsed = (System.currentTimeMillis() - craft.getLastCruiseUpdate()) / 50;
+
+            long ticksElapsed = (System.currentTimeMillis() - craft.getLastCruiseUpdate()) / 50L;
             if (Math.abs(ticksElapsed) < craft.getType().getIntProperty(CraftType.SINK_RATE_TICKS))
                 continue;
+
+            // Visual-only explosions while sinking. Randomized and size-scaled so small craft do not spam effects.
+            spawnRandomExplosionVisuals(craft);
+
+            if (craft.getHitBox().getMinY() == craft.getWorld().getMinHeight()) {
+                removeBottomLayer(craft);
+
+                if (craft.getHitBox().isEmpty()) {
+                    CraftManager.getInstance().release(craft, CraftReleaseEvent.Reason.SUNK, false);
+                    continue;
+                }
+
+                // Keep the same working behavior as the original simple sinking method:
+                // after deleting the bottom layer, shift the hitbox bottom upward by one layer.
+                MovecraftLocation start = new MovecraftLocation(
+                        craft.getHitBox().getMinX(),
+                        craft.getHitBox().getMinY() + 1,
+                        craft.getHitBox().getMinZ()
+                );
+                MovecraftLocation end = new MovecraftLocation(
+                        craft.getHitBox().getMaxX(),
+                        craft.getHitBox().getMaxY(),
+                        craft.getHitBox().getMaxZ()
+                );
+                SolidHitBox newHitBox = new SolidHitBox(start, end);
+                craft.setHitBox((HitBox)newHitBox);
+
+                craft.setLastCruiseUpdate(System.currentTimeMillis());
+                continue;
+            }
 
             int dx = 0;
             int dz = 0;
@@ -309,6 +353,97 @@ public class AsyncManager extends BukkitRunnable {
             }
             craft.translate(dx, -1, dz);
             craft.setLastCruiseUpdate(System.currentTimeMillis());
+        }
+    }
+
+    private void removeBottomLayer(Craft craft) {
+        if (craft.getHitBox().isEmpty())
+            return;
+
+        int bottomY = craft.getHitBox().getMinY();
+        World world = craft.getWorld();
+
+        Set<MovecraftLocation> oldHitBox = craft.getHitBox().asSet();
+        List<MovecraftLocation> bottomLayer = new ArrayList<>();
+
+        for (MovecraftLocation movecraftLocation : oldHitBox) {
+            if (movecraftLocation.getY() == bottomY)
+                bottomLayer.add(movecraftLocation);
+        }
+
+        if (bottomLayer.isEmpty())
+            return;
+
+        Collections.shuffle(bottomLayer, RANDOM);
+        spawnBottomLayerFallingBlocks(world, bottomLayer);
+
+        for (MovecraftLocation movecraftLocation : bottomLayer) {
+            Block block = movecraftLocation.toBukkit(world).getBlock();
+            if (block.getType() != Material.AIR)
+                block.setType(Material.AIR);
+        }
+    }
+
+    private void spawnBottomLayerFallingBlocks(World world, List<MovecraftLocation> bottomLayer) {
+        if (bottomLayer.isEmpty())
+            return;
+
+        // Hard-coded, size-relative, capped amount.
+        // Tiny bottom layers may show 1. Larger layers cap at 12.
+        int fallingBlocks = Math.max(1, Math.min(12, bottomLayer.size() / 40));
+
+        for (int i = 0; i < fallingBlocks && i < bottomLayer.size(); i++) {
+            MovecraftLocation movecraftLocation = bottomLayer.get(i);
+            Location location = movecraftLocation.toBukkit(world);
+            Block block = location.getBlock();
+
+            if (block.isEmpty())
+                continue;
+
+            FallingBlock fallingBlock = world.spawnFallingBlock(
+                    location.clone().add(0.5D, 0.0D, 0.5D),
+                    block.getBlockData()
+            );
+            fallingBlock.setDropItem(false);
+            fallingBlock.setHurtEntities(false);
+            fallingBlock.setVelocity(new Vector(
+                    (RANDOM.nextDouble() - 0.5D) * 0.25D,
+                    -0.15D,
+                    (RANDOM.nextDouble() - 0.5D) * 0.25D
+            ));
+        }
+    }
+
+    private void spawnRandomExplosionVisuals(Craft craft) {
+        if (craft.getHitBox().isEmpty())
+            return;
+
+        Set<MovecraftLocation> hitBox = craft.getHitBox().asSet();
+        int craftSize = hitBox.size();
+
+        if (craftSize <= 0)
+            return;
+
+        // Size-scaled chance per sinking tick.
+        // Small craft are rare, large craft are still capped to avoid spam.
+        double explosionChance = Math.min(0.30D, Math.max(0.03D, craftSize / 3000.0D));
+        if (RANDOM.nextDouble() > explosionChance)
+            return;
+
+        // Size-scaled amount, capped low for performance.
+        int explosions = Math.max(1, Math.min(3, craftSize / 750));
+
+        List<MovecraftLocation> blocks = new ArrayList<>(hitBox);
+        Collections.shuffle(blocks, RANDOM);
+
+        World world = craft.getWorld();
+        for (int i = 0; i < explosions && i < blocks.size(); i++) {
+            Location location = blocks.get(i).toBukkit(world).add(0.5D, 0.5D, 0.5D);
+
+            // Visual-only explosion: no block damage and no entity damage.
+            world.spawnParticle(Particle.EXPLOSION, location, 1);
+            world.spawnParticle(Particle.SMOKE, location, 12, 0.6D, 0.6D, 0.6D, 0.02D);
+            world.playSound(location, Sound.ENTITY_GENERIC_EXPLODE, 0.8F, 1.2F);
         }
     }
 
