@@ -397,9 +397,19 @@ public class AsyncManager extends BukkitRunnable {
                 block.setType(Material.AIR);
         }
 
-        BitmapHitBox newHitBox = new BitmapHitBox(oldHitBox);
-        newHitBox.removeAll(bottomLayer);
-        craft.setHitBox(newHitBox);
+        Set<MovecraftLocation> remainingBlocks = new HashSet<>(oldHitBox);
+        remainingBlocks.removeAll(bottomLayer);
+
+        if (remainingBlocks.isEmpty()) {
+            CraftManager.getInstance().release(
+                    craft,
+                    CraftReleaseEvent.Reason.SUNK,
+                    false
+            );
+            return;
+        }
+
+        craft.setHitBox(new BitmapHitBox(remainingBlocks));
     }
 
     private void spawnBottomLayerFallingBlocks(World world, List<MovecraftLocation> bottomLayer) {
