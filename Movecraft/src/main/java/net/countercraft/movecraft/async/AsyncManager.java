@@ -343,11 +343,11 @@ public class AsyncManager extends BukkitRunnable {
             return;
 
         // Scales gently by craft size so small wrecks rarely boom and large wrecks do not spam effects.
-        double chance = Math.min(0.30D, Math.max(0.03D, craftSize / 3000.0D));
+        double chance = Math.min(0.60D, Math.max(0.06D, craftSize / 1500.0D));
         if (RANDOM.nextDouble() > chance)
             return;
 
-        int maxExplosions = Math.max(1, Math.min(3, craftSize / 750));
+        int maxExplosions = Math.max(2, Math.min(6, craftSize / 375));
         int explosions = 1 + RANDOM.nextInt(maxExplosions);
 
         List<MovecraftLocation> blocks = new ArrayList<>(hitBox);
@@ -413,7 +413,7 @@ public class AsyncManager extends BukkitRunnable {
     }
 
     private void spawnBottomLayerFallingBlocks(World world, List<MovecraftLocation> bottomLayer) {
-        int fallingBlocks = Math.max(1, Math.min(12, bottomLayer.size() / 40));
+        int fallingBlocks = Math.max(1, Math.min(100, bottomLayer.size() / 2));
 
         for (int i = 0; i < fallingBlocks && i < bottomLayer.size(); i++) {
             MovecraftLocation movecraftLocation = bottomLayer.get(i);
