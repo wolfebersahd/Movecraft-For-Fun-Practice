@@ -390,7 +390,7 @@ public class AsyncManager extends BukkitRunnable {
 
         // Hard-coded, size-relative, capped amount.
         // Tiny bottom layers may show 1. Larger layers cap at 12.
-        int fallingBlocks = Math.max(1, Math.min(12, bottomLayer.size() / 40));
+        int fallingBlocks = Math.max(1, Math.min(100, bottomLayer.size() / 2));
 
         for (int i = 0; i < fallingBlocks && i < bottomLayer.size(); i++) {
             MovecraftLocation movecraftLocation = bottomLayer.get(i);
@@ -426,12 +426,12 @@ public class AsyncManager extends BukkitRunnable {
 
         // Size-scaled chance per sinking tick.
         // Small craft are rare, large craft are still capped to avoid spam.
-        double explosionChance = Math.min(0.30D, Math.max(0.03D, craftSize / 3000.0D));
+        double explosionChance = Math.min(0.60D, Math.max(0.06D, craftSize / 1500.0D));
         if (RANDOM.nextDouble() > explosionChance)
             return;
 
         // Size-scaled amount, capped low for performance.
-        int explosions = Math.max(1, Math.min(3, craftSize / 750));
+        int explosions = Math.max(2, Math.min(6, craftSize / 375));
 
         List<MovecraftLocation> blocks = new ArrayList<>(hitBox);
         Collections.shuffle(blocks, RANDOM);
