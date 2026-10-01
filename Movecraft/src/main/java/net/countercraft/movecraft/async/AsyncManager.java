@@ -375,30 +375,78 @@ public class AsyncManager extends BukkitRunnable {
             return;
 
         int bottomY = craft.getHitBox().getMinY();
+        int maxY = craft.getHitBox().getMaxY();
         World world = craft.getWorld();
 
         Set<MovecraftLocation> oldHitBox = craft.getHitBox().asSet();
+
         List<MovecraftLocation> bottomLayer = new ArrayList<>();
 
-        for (MovecraftLocation movecraftLocation : oldHitBox) {
-            if (movecraftLocation.getY() == bottomY)
-                bottomLayer.add(movecraftLocation);
+        for (MovecraftLocation location : oldHitBox) {
+            if (location.getY() == bottomY)
+                bottomLayer.add(location);
         }
 
         if (bottomLayer.isEmpty())
             return;
 
-        Collections.shuffle(bottomLayer, RANDOM);
-        spawnBottomLayerFallingBlocks(world, bottomLayer);
+        // Blocks actually destroyed this sinking step.
+        List<MovecraftLocation> deletionTargets = new ArrayList<>();
 
-        for (MovecraftLocation movecraftLocation : bottomLayer) {
-            Block block = movecraftLocation.toBukkit(world).getBlock();
-            if (block.getType() != Material.AIR)
-                block.setType(Material.AIR);
+        // Everything removed from the craft hitbox this step.
+        // This includes protected containers that remain physically in the world.
+        Set<MovecraftLocation> processedBlocks = new HashSet<>();
+
+        for (MovecraftLocation bottomLocation : bottomLayer) {
+            int x = bottomLocation.getX();
+            int z = bottomLocation.getZ();
+
+            // Work upward through this vertical column.
+            for (int y = bottomY; y <= maxY; y++) {
+                MovecraftLocation location = new MovecraftLocation(x, y, z);
+
+                // Only interact with blocks belonging to this craft.
+                if (!oldHitBox.contains(location))
+                    continue;
+
+                Block block = location.toBukkit(world).getBlock();
+
+                // Clear stale/empty hitbox positions and keep searching upward.
+                if (block.isEmpty()) {
+                    processedBlocks.add(location);
+                    continue;
+                }
+
+                // Preserve inventories/container blocks.
+                // Remove them from the sinking craft, but NOT from the world.
+                if (isProtectedSinkBlock(block.getType())) {
+                    processedBlocks.add(location);
+                    continue;
+                }
+
+                // First ordinary block above the protected stack gets destroyed.
+                deletionTargets.add(location);
+                processedBlocks.add(location);
+                break;
+            }
         }
 
+        // Only actual destroyed blocks get falling-block visuals.
+        Collections.shuffle(deletionTargets, RANDOM);
+        spawnBottomLayerFallingBlocks(world, deletionTargets);
+
+        for (MovecraftLocation location : deletionTargets) {
+            Block block = location.toBukkit(world).getBlock();
+
+            if (!block.isEmpty())
+                block.setType(Material.AIR);
+        }
+    
+        // Rebuild the hitbox without destroyed blocks OR preserved containers.
+        // Preserved containers remain physically in the world but are no longer
+        // considered part of the sinking craft.
         Set<MovecraftLocation> remainingBlocks = new HashSet<>(oldHitBox);
-        remainingBlocks.removeAll(bottomLayer);
+        remainingBlocks.removeAll(processedBlocks);
 
         if (remainingBlocks.isEmpty()) {
             CraftManager.getInstance().release(
@@ -410,6 +458,15 @@ public class AsyncManager extends BukkitRunnable {
         }
 
         craft.setHitBox(new BitmapHitBox(remainingBlocks));
+    }
+
+    private boolean isProtectedSinkBlock(Material material) {
+        return material == Material.CHEST
+                || material == Material.TRAPPED_CHEST
+                || material == Material.BARREL
+                || material == Material.HOPPER
+                || material == Material.DISPENSER
+                || material == Material.DROPPER;
     }
 
     private void spawnBottomLayerFallingBlocks(World world, List<MovecraftLocation> bottomLayer) {
