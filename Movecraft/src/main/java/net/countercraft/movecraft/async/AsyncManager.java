@@ -436,6 +436,12 @@ public class AsyncManager extends BukkitRunnable {
                 // from the moving craft, remember the column, and keep searching.
                 if (isProtectedSinkBlock(block.getType())) {
                     processedBlocks.add(location);
+
+                    // Preserve the inventory block in the world for now, but hand its
+                    // location back to Movecraft's wreck/fading system so it can be
+                    // faded normally after the craft has finished sinking.
+                    craft.getCollapsedHitBox().add(location);
+
                     protectedColumns.add(new MovecraftLocation(x, 0, z));
                     continue;
                 }
