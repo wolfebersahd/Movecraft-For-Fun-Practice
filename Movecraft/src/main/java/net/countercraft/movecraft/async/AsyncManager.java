@@ -63,6 +63,7 @@ public class AsyncManager extends BukkitRunnable {
     private final BlockingQueue<AsyncTask> finishedAlgorithms = new LinkedBlockingQueue<>();
     private final Set<Craft> clearanceSet = new HashSet<>();
     private final Map<Craft, Integer> cooldownCache = new WeakHashMap<>();
+    private final Map<Craft, Set<MovecraftLocation>> protectedSinkColumns = new WeakHashMap<>();
 
     public AsyncManager() {}
 
@@ -390,6 +391,20 @@ public class AsyncManager extends BukkitRunnable {
         if (bottomLayer.isEmpty())
             return;
 
+        // Remember X/Z columns where protected inventory blocks have been left behind.
+        // These columns must keep being processed on later sink steps or blocks above
+        // the preserved containers can remain as vertical strips.
+        Set<MovecraftLocation> protectedColumns =
+                protectedSinkColumns.computeIfAbsent(craft, c -> new HashSet<>());
+
+        // Process both the current bottom-layer columns and any columns that previously
+        // contained protected blocks.
+        Set<MovecraftLocation> columnsToProcess = new HashSet<>(protectedColumns);
+
+        for (MovecraftLocation location : bottomLayer) {
+            columnsToProcess.add(new MovecraftLocation(location.getX(), 0, location.getZ()));
+        }
+
         // Blocks actually destroyed this sinking step.
         List<MovecraftLocation> deletionTargets = new ArrayList<>();
 
@@ -397,15 +412,15 @@ public class AsyncManager extends BukkitRunnable {
         // This includes protected containers that remain physically in the world.
         Set<MovecraftLocation> processedBlocks = new HashSet<>();
 
-        for (MovecraftLocation bottomLocation : bottomLayer) {
-            int x = bottomLocation.getX();
-            int z = bottomLocation.getZ();
+        for (MovecraftLocation column : columnsToProcess) {
+            int x = column.getX();
+            int z = column.getZ();
 
-            // Work upward through this vertical column.
+            // Search upward through the whole craft column. Positions outside the
+            // hitbox and air cavities are skipped so blocks above gaps are still found.
             for (int y = bottomY; y <= maxY; y++) {
                 MovecraftLocation location = new MovecraftLocation(x, y, z);
 
-                // Only interact with blocks belonging to this craft.
                 if (!oldHitBox.contains(location))
                     continue;
 
@@ -417,14 +432,15 @@ public class AsyncManager extends BukkitRunnable {
                     continue;
                 }
 
-                // Preserve inventories/container blocks.
-                // Remove them from the sinking craft, but NOT from the world.
+                // Preserve inventories/container blocks in the world, remove them
+                // from the moving craft, remember the column, and keep searching.
                 if (isProtectedSinkBlock(block.getType())) {
                     processedBlocks.add(location);
+                    protectedColumns.add(new MovecraftLocation(x, 0, z));
                     continue;
                 }
 
-                // First ordinary block above the protected stack gets destroyed.
+                // Delete one ordinary craft block in this column per sink step.
                 deletionTargets.add(location);
                 processedBlocks.add(location);
                 break;
@@ -441,7 +457,7 @@ public class AsyncManager extends BukkitRunnable {
             if (!block.isEmpty())
                 block.setType(Material.AIR);
         }
-    
+
         // Rebuild the hitbox without destroyed blocks OR preserved containers.
         // Preserved containers remain physically in the world but are no longer
         // considered part of the sinking craft.
@@ -449,6 +465,7 @@ public class AsyncManager extends BukkitRunnable {
         remainingBlocks.removeAll(processedBlocks);
 
         if (remainingBlocks.isEmpty()) {
+            protectedSinkColumns.remove(craft);
             CraftManager.getInstance().release(
                     craft,
                     CraftReleaseEvent.Reason.SUNK,
@@ -457,8 +474,23 @@ public class AsyncManager extends BukkitRunnable {
             return;
         }
 
+        // Stop revisiting protected columns once there are no craft blocks left above
+        // them. Air gaps do not matter; any remaining block in the same X/Z keeps the
+        // column active.
+        Set<MovecraftLocation> activeColumns = new HashSet<>();
+
+        for (MovecraftLocation location : remainingBlocks) {
+            activeColumns.add(new MovecraftLocation(location.getX(), 0, location.getZ()));
+        }
+
+        protectedColumns.retainAll(activeColumns);
+
+        if (protectedColumns.isEmpty())
+            protectedSinkColumns.remove(craft);
+
         craft.setHitBox(new BitmapHitBox(remainingBlocks));
     }
+
 
     private boolean isProtectedSinkBlock(Material material) {
         return material == Material.CHEST
